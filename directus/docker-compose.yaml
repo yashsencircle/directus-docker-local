@@ -6,6 +6,7 @@ services:
     container_name: directus-database
     restart: unless-stopped
     environment:
+      # MARKETPLACE_ENABLED: "true"
       POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -14,6 +15,7 @@ services:
       - "5433:5432"
     volumes:
       - database_data:/var/lib/postgresql/data
+      # - ./extensions:/directus/extensions
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_DATABASE}"]
       interval: 10s

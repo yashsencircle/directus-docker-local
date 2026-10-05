@@ -71,8 +71,13 @@ services:
       STORAGE_LOCATIONS: local
       STORAGE_LOCAL_DRIVER: local
       STORAGE_LOCAL_ROOT: /directus/uploads
+
+      # Add this line to cap max transformations at 2000px
+      ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION: "1000"
+      # ASSETS_TRANSFORM_IMAGE_MAX_OUTPUT_DIMENSION: "1000"
     volumes:
       - ./uploads:/directus/uploads
+      - ./directus/extensions:/directus/extensions # I-07 to set directus/extension foder
     healthcheck:
       test: ["CMD-SHELL", "curl -i http://127.0.0.1:8055/server/health || exit 1"]
       interval: 10s

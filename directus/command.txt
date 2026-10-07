@@ -1,0 +1,86 @@
+# Steps to run migration 
+
+Step 1 – Create a fresh database in the running Postgres container
+docker exec directus-database createdb -U directus -O directus directus_migrated
+Step 2 – Restore the dump (the core migration command)
+docker exec -i directus-database psql -U directus -d directus_migrated \
+  -v ON_ERROR_STOP=1 -q \
+  < .../directus/dump_2026-10-07_09-59-02.sql
+→ Recreates tables, indexes, and all data. Result: RESTORE_OK.
+Step 3 – Enable PostGIS for geometry fields
+docker exec directus-database psql -U directus -d directus_migrated \
+  -c "CREATE EXTENSION IF NOT EXISTS postgis"
+Step 4 – Verify the restored data
+docker exec directus-database psql -U directus -d directus_migrated -tAc \
+  "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"   # 274
+docker exec directus-database psql -U directus -d directus_migrated -tAc "SELECT count(*) FROM directus_collections"  # 255
+docker exec directus-database psql -U directus -d directus_migrated -tAc "SELECT count(*) FROM directus_users"         # 25
+docker exec directus-database psql -U directus -d directus_migrated -tAc "SELECT count(*) FROM directus_files"         # 19827
+Step 5 – Point Directus at the migrated database
+# In .env: DB_DATABASE=directus_migrated
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+docker compose up -d    # recreates the directus-app container with the new DB
+Step 5 – Confirm Directus is serving it
+curl -s http://localhost:8055/server/health   # {"status":"ok"}
+# App logs show clean boot; API endpoint returns 403 (auth required) = schema loaded
+
+
+check directus flow table in pgadmin
+
+
+A) Switch to directus_migrated (the working DB — 25 users, 19.8k files)
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+sed -i '' 's|^DB_DATABASE=.*|DB_DATABASE=directus_migrated|' .env
+docker compose up -d --force-recreate directus
+sleep 12
+docker exec directus-app printenv DB_DATABASE    # MUST print: directus_migrated
+Then open http://localhost:8055 and log in with a migrated-dump user, e.g. admin@gmail.com.
+B) Switch to directus (old/partial DB)
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+sed -i '' 's|^DB_DATABASE=.*|DB_DATABASE=directus|' .env
+docker compose up -d --force-recreate directus
+sleep 12
+docker exec directus-app printenv DB_DATABASE    # MUST print: directus
+C) Verify which DB the app is really connected to
+docker exec directus-database psql -U directus -d postgres -c \
+"SELECT datname, count(*) FROM pg_stat_activity WHERE usename='directus' AND client_addr IS NOT NULL GROUP BY 1"
+The line shown here is the ground truth — this is the database the app is actually talking to. Your earlier check showed directus | 2, which means the switch to old did work.
+Why you were confused earlier
+The two database names look different but the UI doesn't, because both contain the same 255 collections from the same dump:
+- directus_migrated = full restore with real data (25 users, files, tours/hotels rows) — this is the one you can use.
+- directus = empty partial restore (1 admin, 0 files, 0 rows, broken orphan metadata) — logging in here shows "No App Access" because the app crashes on your profile.
+If you want the old directus DB to at least log in, I can repair it by deleting the orphaned directus_fields/directus_relations rows that make /users/me crash — but note it's an empty admin (no users, files, or data). 
+Which do you want?
+1. Repair old directus so admin@example.com can log in (empty shell admin)
+2. Just use directus_migrated (your real migrated data) — recommended
+3. Both — repair old DB and keep using migrated
+
+
+# Steps to switch database
+
+update env first with database name directus or directus_migrated
+
+# 1. Point the app at the OLD database
+sed -i '' 's/^DB_DATABASE=.*/DB_DATABASE=directus/' .env
+
+# 2. Recreate only the Directus app container (NOT postgres, data untouched)
+docker compose up -d --force-recreate directus
+
+# 3. Wait a few seconds, then confirm
+sleep 12
+curl http://localhost:8055/server/health     # expect: {"status":"ok"}
+To switch to the NEW database, the only difference is step 1:
+sed -i '' 's/^DB_DATABASE=.*/DB_DATABASE=directus_migrated/' .env
+How to verify which DB you're on
+grep '^DB_DATABASE=' .env
+# tells you what the app WILL use
+
+docker exec directus-database psql -U directus -d postgres -tAc \
+  "SELECT DISTINCT datname FROM pg_stat_activity WHERE usename='directus' AND client_addr IS NOT NULL"
+# tells you what the app is ACTUALLY using right now
+⚠️ Three rules so you never lose data
+1. Never run docker compose down -v — the -v flag deletes the Postgres volume (database_data) which is where both databases physically live. That is the only command that can destroy your data.
+2. Don't hand-edit DB_DATABASE to a name that doesn't exist — it must always be exactly directus or directus_migrated.
+3. Keep a backup before big changes — the script does this automatically; if switching manually, you can add:
+docker exec directus-database pg_dump -U directus -d directus -Fc -f /tmp/directus_backup.dump
+You're all set on the old database — refresh http://localhost:8055 and your 17 collections are there. Want me to also add README-style docs of these steps into your project folder (e.g. SWITCHING.md) so you always have them?

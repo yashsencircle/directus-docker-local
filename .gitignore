@@ -6,3 +6,7 @@ directus/uploads/
 
 # OS noise
 .DS_Store
+
+# Database dumps -- GitHub rejects files over 100 MB
+dump_*.sql
+dump_*.sql.gz

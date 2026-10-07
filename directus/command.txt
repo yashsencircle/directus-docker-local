@@ -133,3 +133,38 @@ cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/direc
 # 3. Backup before big changes (STEP 0 or the script). Restore with:
 #    docker exec -i directus-database pg_restore -U directus -d <dbname> -Fc /tmp/<file>.dump
 #    (or drop/recreate the target DB first if restoring over existing data).
+
+
+Revert the data model to snap.json
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+
+# 0. confirm you're pointing at the right DB (this is where the apply goes)
+docker exec directus-app printenv DB_DATABASE          # must say: directus
+
+# 1. safety backup of the CURRENT (3-collection) state — in case you want the demo stuff back later
+docker exec directus-database pg_dump -U directus -d directus -Fc -f /tmp/directus_pre_revert.dump
+docker cp directus-database:/tmp/directus_pre_revert.dump ./directus_pre_revert.dump
+
+# 2. copy snap.json in — RENAMED to .yaml because the content is YAML and the
+#    parser is picked by extension (.json would be JSON.parse'd and crash)
+docker cp snap.json directus-app:/tmp/snap.yaml
+
+# 3. optional: preview the diff WITHOUT applying (lists what will be created/deleted)
+docker compose exec directus node cli.js schema apply --dry-run /tmp/snap.yaml
+
+# 4. apply snap.json as the full desired end-state
+docker compose exec directus node cli.js schema apply --yes /tmp/snap.yaml
+What the diff will show (all expected, not an accident):
+- Create ~16 collections (Accommodations, events_files, events_speakers, events_translations, hotels, … tours_e_03_translations) + their tables, 97 fields, 19 relations
+- Delete venues_demo (drops its table) and missing_parent_folder (folder metadata only) — these exist live but aren't in snap.json
+- Update events → its other fields come back (only id exists in the DB right now); existing data in the events table is untouched
+Verify the revert
+docker exec directus-database psql -U directus -d directus -tAc "SELECT count(*) FROM directus_collections"        # 17
+docker exec directus-database psql -U directus -d directus -tAc "SELECT collection FROM directus_collections ORDER BY collection"
+docker exec directus-database psql -U directus -d directus -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('venues_demo','missing_parent_folder')"   # 0
+docker exec directus-database psql -U directus -d directus -tAc "SELECT count(*) FROM directus_fields"             # 97
+UI check: Settings → Data Model should show the full 17-collection list with events nesting group fields again, and venues_demo/missing_parent_folder gone.
+Caveats if you hit trouble during the apply:
+- Unexpected token 'v'... → you applied a .json-named path; use /tmp/snap.yaml (step 2).
+- Collection-create error on an object that already physically exists → run docker compose restart directus first if the app has a stale schema cache, and re-docker cp the file; the diff is recomputed against the live DB each run.
+- Data is empty in restored tables → expected; only recoverable from an old pg_dump of the directus DB (none found).

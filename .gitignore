@@ -10,3 +10,5 @@ directus/uploads/
 # Database dumps -- GitHub rejects files over 100 MB
 dump_*.sql
 dump_*.sql.gz
+
+node_modules

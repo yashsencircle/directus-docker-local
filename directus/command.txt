@@ -168,3 +168,26 @@ Caveats if you hit trouble during the apply:
 - Unexpected token 'v'... → you applied a .json-named path; use /tmp/snap.yaml (step 2).
 - Collection-create error on an object that already physically exists → run docker compose restart directus first if the app has a stale schema cache, and re-docker cp the file; the diff is recomputed against the live DB each run.
 - Data is empty in restored tables → expected; only recoverable from an old pg_dump of the directus DB (none found).
+
+# E-05
+1)# export the live schema (this is the exact cli.js inside the container)
+docker compose exec directus node cli.js schema snapshot --format yaml /tmp/snap.yaml
+
+# pull it out of the container to your project
+docker cp directus-app:/tmp/snap.yaml ./snap.yaml
+
+Phase 2 — Create YAMLs/ and study the structure
+mkdir -p YAMLs
+npm init -y >/dev/null 2>&1; npm i js-yaml
+node -e '
+const y=require("js-yaml"),fs=require("fs");
+const s=y.load(fs.readFileSync("snap.yaml","utf8"));
+const keep=c=>c==="events"||c.startsWith("events_");
+const out={
+  collections:s.collections.filter(c=>keep(c.collection)),
+  fields:s.fields.filter(f=>keep(f.collection)),
+  relations:s.relations.filter(r=>keep(r.collection)||keep(r.related_collection)),
+  systemFields:[]
+};
+fs.writeFileSync("YAMLs/events.yaml",y.dump(out));
+'

@@ -46,41 +46,90 @@ docker exec directus-database psql -U directus -d postgres -c \
 "SELECT datname, count(*) FROM pg_stat_activity WHERE usename='directus' AND client_addr IS NOT NULL GROUP BY 1"
 The line shown here is the ground truth — this is the database the app is actually talking to. Your earlier check showed directus | 2, which means the switch to old did work.
 Why you were confused earlier
-The two database names look different but the UI doesn't, because both contain the same 255 collections from the same dump:
-- directus_migrated = full restore with real data (25 users, files, tours/hotels rows) — this is the one you can use.
-- directus = empty partial restore (1 admin, 0 files, 0 rows, broken orphan metadata) — logging in here shows "No App Access" because the app crashes on your profile.
-If you want the old directus DB to at least log in, I can repair it by deleting the orphaned directus_fields/directus_relations rows that make /users/me crash — but note it's an empty admin (no users, files, or data). 
-Which do you want?
-1. Repair old directus so admin@example.com can log in (empty shell admin)
-2. Just use directus_migrated (your real migrated data) — recommended
-3. Both — repair old DB and keep using migrated
+The two databases have the same-looking UI, but they are DIFFERENT datasets:
+- directus_migrated = full production dump restore (25 users, 19,827 files, 255 collections, real data).
+- directus = rebuilt from snap.json = OLD project structure (17 collections: events, tours, test_yash, hotels…; 1 admin: admin@example.com).
+Both log in fine and are fully separate. The only reason the "wrong" UI showed was that the app container had not been recreated after changing .env (see the switch steps above) — or the browser still had a stale session (hard refresh / re-login fixes it).
 
 
-# Steps to switch database
+# ═══════════════════════════════════════════════════════════════
+#  STEPS TO SWITCH DB — THE COMPLETE, CORRECT SEQUENCE
+#  (this is exactly what the switch-db.sh script does)
+# ═══════════════════════════════════════════════════════════════
 
-update env first with database name directus or directus_migrated
+# Available databases:  directus  (OLD — your snap.json project)
+#                       directus_migrated  (NEW — production dump)
 
-# 1. Point the app at the OLD database
-sed -i '' 's/^DB_DATABASE=.*/DB_DATABASE=directus/' .env
+# ────────────────────────────────────────────────────────────────
+#  STEP 0 — OPTIONAL SAFETY BACKUP (never lose data)
+# ────────────────────────────────────────────────────────────────
+docker exec directus-database pg_dump -U directus -d directus_migrated -Fc -f /tmp/directus_migrated_backup.dump
+docker exec directus-database pg_dump -U directus -d directus        -Fc -f /tmp/directus_backup.dump
 
-# 2. Recreate only the Directus app container (NOT postgres, data untouched)
+# ────────────────────────────────────────────────────────────────
+#  STEP 1 — PICK THE DB in .env
+#  To use the NEW database:  DB_DATABASE=directus_migrated
+#  To use the OLD database:  DB_DATABASE=directus
+# ────────────────────────────────────────────────────────────────
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+
+sed -i '' 's/^DB_DATABASE=.*/DB_DATABASE=directus_migrated/' .env   # <─ change to directus for OLD
+
+# ⚠️ CRITICAL: editing .env alone does NOTHING to a running container.
+# The app only reads the DB name when the container is (re)created.
+# If you skip STEP 2, the old UI keeps showing — this is what happened before.
+
+# ────────────────────────────────────────────────────────────────
+#  STEP 2 — RECREATE THE APP CONTAINER  (THIS is what switches the DB)
+#  Postgres is NOT touched — the --force-recreate only rebuilds the
+#  Directus app container with the new env value. Data is untouched.
+# ────────────────────────────────────────────────────────────────
 docker compose up -d --force-recreate directus
 
-# 3. Wait a few seconds, then confirm
+# ────────────────────────────────────────────────────────────────
+#  STEP 3 — VERIFY THE SWITCH ACTUALLY HAPPENED
+# ────────────────────────────────────────────────────────────────
 sleep 12
-curl http://localhost:8055/server/health     # expect: {"status":"ok"}
-To switch to the NEW database, the only difference is step 1:
-sed -i '' 's/^DB_DATABASE=.*/DB_DATABASE=directus_migrated/' .env
-How to verify which DB you're on
-grep '^DB_DATABASE=' .env
-# tells you what the app WILL use
+curl -s http://localhost:8055/server/health        # expect: {"status":"ok"}
 
+# 3a. Ground truth — which DB is the app REALLY connected to right now:
+docker exec directus-app printenv DB_DATABASE      # MUST print: directus_migrated (or directus)
 docker exec directus-database psql -U directus -d postgres -tAc \
   "SELECT DISTINCT datname FROM pg_stat_activity WHERE usename='directus' AND client_addr IS NOT NULL"
-# tells you what the app is ACTUALLY using right now
-⚠️ Three rules so you never lose data
-1. Never run docker compose down -v — the -v flag deletes the Postgres volume (database_data) which is where both databases physically live. That is the only command that can destroy your data.
-2. Don't hand-edit DB_DATABASE to a name that doesn't exist — it must always be exactly directus or directus_migrated.
-3. Keep a backup before big changes — the script does this automatically; if switching manually, you can add:
-docker exec directus-database pg_dump -U directus -d directus -Fc -f /tmp/directus_backup.dump
-You're all set on the old database — refresh http://localhost:8055 and your 17 collections are there. Want me to also add README-style docs of these steps into your project folder (e.g. SWITCHING.md) so you always have them?
+#   ^ the line printed here is the real answer — it must match what you wanted.
+
+# 3b. Confirm the data is the one you expect:
+#   NEW db (directus_migrated): 25 users, 19,827 files, 255 collections
+#   OLD db (directus):          17 collections (snap.json project), admin@example.com
+# quick check:
+docker exec directus-database psql -U directus -d $(grep '^DB_DATABASE=' .env | cut -d= -f2) -tAc \
+  "SELECT 'users='||count(*) FROM directus_users"      # NEW: 25   |   OLD: 1
+
+# ────────────────────────────────────────────────────────────────
+#  STEP 4 — CLEAR THE BROWSER SESSION (REQUIRED)
+#  The admin UI is a single-page app and caches the old session.
+#  After switching: open http://localhost:8055 and do a HARD refresh
+#  (Cmd+Shift+R), or log out and log in again — otherwise you still
+#  see the OLD UI with a stale token.
+# ────────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────
+#  EASIEST WAY — just use the script (does Steps 0-4, with backup)
+# ────────────────────────────────────────────────────────────────
+cd /Users/yash/my-work/directus-docker-local-project/directus-docker-local/directus
+./switch-db.sh status   # what DB am I on right now?
+./switch-db.sh old      # -> directus          (snap.json project)
+./switch-db.sh new      # -> directus_migrated (production dump)
+
+# ────────────────────────────────────────────────────────────────
+#  ⚠️ THREE RULES SO YOU NEVER LOSE DATA
+# ────────────────────────────────────────────────────────────────
+# 1. NEVER run:  docker compose down -v
+#    The -v flag deletes the Postgres volume (database_data), which is
+#    where BOTH databases physically live. It is the ONLY command that
+#    can destroy your data.
+# 2. DB_DATABASE must always be exactly:  directus  or  directus_migrated
+#    (a typo'd name makes the app fail to start).
+# 3. Backup before big changes (STEP 0 or the script). Restore with:
+#    docker exec -i directus-database pg_restore -U directus -d <dbname> -Fc /tmp/<file>.dump
+#    (or drop/recreate the target DB first if restoring over existing data).

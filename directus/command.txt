@@ -212,3 +212,8 @@ docker cp schema_failure.yaml directus-app:/tmp/schema_failure.yaml
 
 # verify with command
 docker compose exec directus node cli.js schema apply --yes /tmp/schema_failure.yaml
+
+Step 6: 
+sed -i '' 's/group: missing_parent_collection/group: null/' schema_failure.yaml
+docker cp schema_failure.yaml directus-app:/tmp/schema_failure.yaml
+docker compose exec directus node cli.js schema apply --yes /tmp/schema_failure.yaml

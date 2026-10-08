@@ -201,3 +201,14 @@ docker compose exec directus node cli.js schema apply --yes /tmp/schema.yaml
 docker cp schema.yaml directus-app:/tmp/schema.yaml
 docker compose exec directus node cli.js schema apply --dry-run /tmp/schema.yaml
 docker compose exec directus node cli.js schema apply --yes /tmp/schema.yaml
+
+Step 5: run below command to generate failure and successs scenario
+State	sed command
+Success (current)	sed -i '' 's/group: missing_parent_collection/group: events/' schema_failure.yaml
+Failure	sed -i '' 's/group: events/group: missing_parent_collection/' schema_failure.yaml
+
+# sync into container
+docker cp schema_failure.yaml directus-app:/tmp/schema_failure.yaml 
+
+# verify with command
+docker compose exec directus node cli.js schema apply --yes /tmp/schema_failure.yaml

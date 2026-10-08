@@ -217,3 +217,58 @@ Step 6:
 sed -i '' 's/group: missing_parent_collection/group: null/' schema_failure.yaml
 docker cp schema_failure.yaml directus-app:/tmp/schema_failure.yaml
 docker compose exec directus node cli.js schema apply --yes /tmp/schema_failure.yaml
+
+Step 7:
+
+📁 The two files (both in directus/)
+File	                          Contents	                                                                                     Tool that consumes it
+demo_schema_with_workshops.yaml	Full end-state: all 17 collections + new workshops (with explicit id, title, capacity, status)	schema apply
+demo_additive_workshops.yaml	Minimal wishlist: just workshops + 3 fields (no id — Directus auto-creates it)	import.js
+▶️ Example A — schema apply (full-state sync, file must be inside the container)
+cd directus-docker-local/directus
+
+# 1. edit / generate the full snapshot   (demo_schema_with_workshops.yaml)
+# 2. copy it INTO the container — apply reads /tmp, not the host!
+docker cp demo_schema_with_workshops.yaml directus-app:/tmp/demo_schema_with_workshops.yaml
+
+# 3. preview the diff (no changes yet)
+docker compose exec directus node cli.js schema apply --dry-run /tmp/demo_schema_with_workshops.yaml
+
+# 4. apply
+docker compose exec directus node cli.js schema apply --yes /tmp/demo_schema_with_workshops.yaml
+Observed in the live run:
+- Create workshops
+- Create workshops.id
+- Create workshops.title
+- Create workshops.capacity
+- Create workshops.status
+Snapshot applied successfully
+→ 17 → 18 collections, workshops table with id PK, title varchar(255) NOT NULL, capacity int DEFAULT 25, status varchar(25) DEFAULT 'draft'.
+The destructive flip side (proved live): applying the baseline afterward
+docker compose exec directus node cli.js schema apply --yes /tmp/schema.yaml
+prints - Delete workshops → the collection is dropped, because "not in the snapshot" = "should not exist".
+▶️ Example B — additive import.js (runs on the HOST, reads host paths)
+cd directus-docker-local/directus
+
+# no docker cp needed — the script talks to the Directus API at localhost:8055
+SNAPSHOT=$PWD/demo_additive_workshops.yaml node directus-schema-import/import.js
+Observed in the live run:
+  + collection workshops
+  + field workshops.title
+  + field workshops.capacity
+  + field workshops.status
+Collections : 0 already present, 1 created
+Fields      : 0 already present, 3 created
+Relations   : 0 already present, 0 created
+Removed     : 0   ← no DELETE ever happens
+→ identical table (id PK auto-added by the API, same columns/defaults), 17 → 18 collections.
+🔑 The real difference (same change, opposite guarantees)
+ 	schema apply	import.js
+
+File role	Requirements for the entire DB	Checklist of things to ensure exist
+Creates missing objects	✅ Create workshops…	✅ + collection workshops…
+Removes unlisted objects	✅ Delete workshops (proved: \d workshops later says table doesn't exist)	❌ Removed: 0 — hardcoded, impossible
+id PK	must be in the snapshot (Create workshops.id)	auto-created by the API (no need in file)
+Where it runs	file must be docker cp-ed to container /tmp	host file path in SNAPSHOT=
+Testing the failure exercise once more with these tools in hand: if you point import.js at a file where venues.group points at a missing folder, it will (correctly) fail on the FK when creating venues — but it will never have tried to delete anything to get there; schema apply is the only tool that can silently converge a bad snapshot into data loss. That's the takeaway: use apply when the snapshot is the truth, use the importer when you're adding to something that's already live.
+DB is back at the clean 17-collection baseline, and all four artifacts stay put: schema.yaml, schema_failure.yaml, demo_schema_with_workshops.yaml, demo_additive_workshops.yaml. Want me to also throw an events → workshops M2O relation into the demo so you can see relations added by both tools?

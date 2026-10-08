@@ -1,0 +1,171 @@
+# =============================================================================
+# demo_additive_workshops.yaml
+# ADDITIVE-ONLY import spec. Describes what should EXIST, not the whole end-state.
+# import.js will CREATE the missing collection + fields and NEVER touch/delete
+# anything else. (Directus auto-creates the `id` primary key on the collection.)
+# =============================================================================
+version: 1
+directus: 11.17.4
+vendor: postgres
+collections:
+  - collection: workshops
+    meta:
+      accountability: all
+      archive_app_filter: true
+      archive_field: null
+      archive_value: null
+      collapse: open
+      collection: workshops
+      color: null
+      display_template: null
+      group: null
+      hidden: false
+      icon: workspaces
+      item_duplication_fields: null
+      note: null
+      preview_url: null
+      singleton: false
+      sort: null
+      sort_field: null
+      translations: null
+      unarchive_value: null
+      versioning: false
+    schema:
+      name: workshops
+fields:
+  - collection: workshops
+    field: title
+    type: string
+    meta:
+      collection: workshops
+      conditions: null
+      display: null
+      display_options: null
+      field: title
+      group: null
+      hidden: false
+      interface: input
+      note: null
+      options: null
+      readonly: false
+      required: true
+      searchable: true
+      sort: 1
+      special: null
+      translations: null
+      validation: null
+      validation_message: null
+      width: full
+    schema:
+      name: title
+      table: workshops
+      data_type: character varying
+      default_value: null
+      max_length: 255
+      numeric_precision: null
+      numeric_scale: null
+      is_nullable: false
+      is_unique: false
+      is_indexed: false
+      is_primary_key: false
+      is_generated: false
+      generation_expression: null
+      has_auto_increment: false
+      foreign_key_table: null
+      foreign_key_column: null
+  - collection: workshops
+    field: capacity
+    type: integer
+    meta:
+      collection: workshops
+      conditions: null
+      display: null
+      display_options: null
+      field: capacity
+      group: null
+      hidden: false
+      interface: input
+      note: null
+      options: null
+      readonly: false
+      required: false
+      searchable: true
+      sort: 2
+      special: null
+      translations: null
+      validation:
+        _and:
+          - _or:
+              - capacity: null
+              - _and:
+                  - capacity:
+                      _gte: 1
+                  - capacity:
+                      _lte: 200
+      validation_message: null
+      width: full
+    schema:
+      name: capacity
+      table: workshops
+      data_type: integer
+      default_value: 25
+      max_length: null
+      numeric_precision: 32
+      numeric_scale: 0
+      is_nullable: true
+      is_unique: false
+      is_indexed: false
+      is_primary_key: false
+      is_generated: false
+      generation_expression: null
+      has_auto_increment: false
+      foreign_key_table: null
+      foreign_key_column: null
+  - collection: workshops
+    field: status
+    type: string
+    meta:
+      collection: workshops
+      conditions: null
+      display: null
+      display_options: null
+      field: status
+      group: null
+      hidden: false
+      interface: select-dropdown
+      note: null
+      options:
+        choices:
+          - text: Draft
+            value: draft
+          - text: Open
+            value: open
+          - text: Full
+            value: full
+      readonly: false
+      required: true
+      searchable: true
+      sort: 3
+      special: null
+      translations: null
+      validation: null
+      validation_message: null
+      width: half
+    schema:
+      name: status
+      table: workshops
+      data_type: character varying
+      default_value: draft
+      max_length: 25
+      numeric_precision: null
+      numeric_scale: null
+      is_nullable: false
+      is_unique: false
+      is_indexed: false
+      is_primary_key: false
+      is_generated: false
+      generation_expression: null
+      has_auto_increment: false
+      foreign_key_table: null
+      foreign_key_column: null
+relations: []

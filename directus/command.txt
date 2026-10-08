@@ -191,3 +191,13 @@ const out={
 };
 fs.writeFileSync("YAMLs/events.yaml",y.dump(out));
 '
+Step 3
+update events and schema.yaml file for venue_url and run below command to safely run
+# Option A — already loaded in the container, just run it:
+docker compose exec directus node cli.js schema apply --dry-run /tmp/schema.yaml
+docker compose exec directus node cli.js schema apply --yes /tmp/schema.yaml
+
+# Option B — re-copy the now-fixed host file first (belt and suspenders):
+docker cp schema.yaml directus-app:/tmp/schema.yaml
+docker compose exec directus node cli.js schema apply --dry-run /tmp/schema.yaml
+docker compose exec directus node cli.js schema apply --yes /tmp/schema.yaml
